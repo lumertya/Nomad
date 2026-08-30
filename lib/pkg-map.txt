@@ -1,0 +1,56 @@
+# lib/pkg-map.txt. Best-effort package name translation across distros.
+#
+# Format: canonical:pacman:apt:dnf:zypper
+# One row per package family. A blank/missing column means "not confirmed" available under a consistent name for that manager". Those are skipped during translation rather than guessed.
+#
+# This list is intentionally scoped to common, everyday packages.
+# Package naming across distros isn't standardized, so treat this as best-effort, not guaranteed. Extend it as you notice gaps.
+
+firefox:firefox:firefox:firefox:MozillaFirefox
+git:git:git:git:git
+vim:vim:vim:vim:vim
+neovim:neovim:neovim:neovim:neovim
+curl:curl:curl:curl:curl
+wget:wget:wget:wget:wget
+htop:htop:htop:htop:htop
+tmux:tmux:tmux:tmux:tmux
+nodejs:nodejs:nodejs:nodejs:nodejs
+npm:npm:npm:npm:npm
+docker:docker:docker.io:docker:docker
+vlc:vlc:vlc:vlc:vlc
+gimp:gimp:gimp:gimp:gimp
+blender:blender:blender:blender:blender
+mpv:mpv:mpv:mpv:mpv
+ripgrep:ripgrep:ripgrep:ripgrep:ripgrep
+fzf:fzf:fzf:fzf:fzf
+tree:tree:tree:tree:tree
+unzip:unzip:unzip:unzip:unzip
+zip:zip:zip:zip:zip
+openssh:openssh:openssh-client:openssh-clients:openssh
+rsync:rsync:rsync:rsync:rsync
+imagemagick:imagemagick:imagemagick:ImageMagick:ImageMagick
+ffmpeg:ffmpeg:ffmpeg:ffmpeg:ffmpeg
+jq:jq:jq:jq:jq
+gcc:gcc:gcc:gcc:gcc
+make:make:make:make:make
+cmake:cmake:cmake:cmake:cmake
+mariadb:mariadb:mariadb-server:mariadb-server:mariadb
+postgresql:postgresql:postgresql:postgresql-server:postgresql
+redis:redis:redis-server:redis:redis
+nginx:nginx:nginx:nginx:nginx
+sqlite:sqlite:sqlite3:sqlite:sqlite3
+ruby:ruby:ruby:ruby:ruby
+zsh:zsh:zsh:zsh:zsh
+fish:fish:fish:fish:fish
+thunderbird:thunderbird:thunderbird:thunderbird:MozillaThunderbird
+libreoffice:libreoffice-fresh:libreoffice:libreoffice:libreoffice
+keepassxc:keepassxc:keepassxc:keepassxc:keepassxc
+obs-studio:obs-studio:obs-studio:obs-studio:obs-studio
+gparted:gparted:gparted:gparted:gparted
+timeshift:timeshift:timeshift:timeshift:timeshift
+syncthing:syncthing:syncthing:syncthing:syncthing
+wireshark:wireshark-qt:wireshark:wireshark:wireshark
+nmap:nmap:nmap:nmap:nmap
+tcpdump:tcpdump:tcpdump:tcpdump:tcpdump
+python:python:python3:python3:python3
+python-pip:python-pip:python3-pip:python3-pip:python3-pip
