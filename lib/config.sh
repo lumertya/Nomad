@@ -48,34 +48,49 @@ ensure_data_repo() {
                 gum style --foreground 196 "A repo URL is required. Nomad has nowhere to push your backup without one."
                 continue
             fi
-            echo "Checking that repository URL actually works (you may be asked to authenticate)..."
-            if git ls-remote "$DATA_REPO_URL" &>/dev/null; then
+
+            echo "Checking if that repository URL actually works (you may be asked to authenticate)..."
+            CLONE_ERR=$(mktemp)
+            stty sane 2>/dev/null; tput rmcup 2>/dev/null; tput cnorm 2>/dev/null; tput sgr0 2>/dev/null; tput clear 2>/dev/null
+            git config --global credential.helper "cache --timeout=600"
+            if env GIT_TERMINAL_PROMPT=1 git clone "$DATA_REPO_URL" "$DATA_DIR" 2>"$CLONE_ERR"; then
+                gum style --foreground 42 "✓ Connected to $DATA_REPO_URL"
+                rm -f "$CLONE_ERR"
                 break
             else
-                gum style --foreground 196 "Couldn't reach a real git repo at that URL. Check it's correct and that you have access, then try again."
+                gum style --foreground 196 "Couldn´t reach a real repository at that URL. Check it's correct and that you have access, then try again."
+                cat "$CLONE_ERR" >&2
+                rm -f "$CLONE_ERR"
+                rm -rf "$DATA_DIR"
+                DATA_REPO_URL=""
             fi
         done
-    fi
-
-    save_nomad_config
-
-    if [ ! -d "$DATA_DIR/.git" ]; then
-        if git clone "$DATA_REPO_URL" "$DATA_DIR" 2>/dev/null; then
-            gum style --foreground 42 "✓ Cloned existing repository into $DATA_DIR"
+        save_nomad_config
+    else    
+        save_nomad_config
+        if [ ! -d "$DATA_DIR/.git" ]; then
+            echo "Connecting to your data repository (you may be asked to authenticate)..."
+            stty sane 2>/dev/null; tput rmcup 2>/dev/null; tput cnorm 2>/dev/null; tput sgr0 2>/dev/null; tput clear 2>/dev/null
+            git config --global credential.helper "cache --timeout=600"
+            if env GIT_TERMINAL_PROMPT=1 git clone "$DATA_REPO_URL" "$DATA_DIR"; then
+                gum style --foreground 42 "✓ Connected to $DATA_REPO_URL"
+            else
+                gum style --foreground 196 "Couldn´t reach $DATA_REPO_URL. Check your connection and access, then run Nomad again."
+                exit 1
+            fi
         else
-            mkdir -p "$DATA_DIR"
-            (cd "$DATA_DIR" && git init -q && git remote add origin "$DATA_REPO_URL" && git checkout -b main -q)
-            gum style --foreground 42 "✓ Initialized new repository at $DATA_DIR"
-        fi
-    else
-        current_url=$(git -C "$DATA_DIR" remote get-url origin 2>/dev/null || echo "")
-        if [ "$current_url" != "$DATA_REPO_URL" ]; then
-            git -C "$DATA_DIR" remote set-url origin "$DATA_REPO_URL"
-            gum style --foreground 42 "✓ Updated repository remote to $DATA_REPO_URL"
-        fi
+            current_url=$(git -C "$DATA_DIR" remote get-url origin 2>/dev/null || echo "")
+            if [ "$current_url" != "$DATA_REPO_URL" ]; then
+                git -C "$DATA_DIR" remote set-url origin "$DATA_REPO_URL"
+                gum style --foreground 42 "✓ Updated repository remote to $DATA_REPO_URL"
+            fi
 
-        if ! git -C "$DATA_DIR" pull --ff-only origin main 2>/dev/null; then
-            gum style --foreground 214 "Could not fast-forward pull. If this repo has local commits that conflict with the remote, you may need to resolve that manually in $DATA_DIR."
+            stty sane 2>/dev/null; tput rmcup 2>/dev/null; tput cnorm 2>/dev/null; tput sgr0 2>/dev/null; tput clear 2>/dev/null
+            git config --global credential.helper "cache --timeout=600"
+            if ! env GIT_TERMINAL_PROMPT=1 git -C "$DATA_DIR" pull --ff-only origin main 2>/dev/null; then
+                gum style --foreground 214 "Could not fast-forward pull. If this repository has local commits that conflict with the remote, you may need to resolve that manually in $DATA_DIR."
+            fi
         fi
     fi
+
 }

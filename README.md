@@ -66,7 +66,7 @@ chmod +x restore.sh
 ./restore.sh
 ```
 
-This clones your private repository, or asks for it if this is a new machine, then detects the new machine's distro and package manager. It reinstalls packages using the correct package manager for this machine, translating package names via `lib/pkg-map.txt` if you're restoring on a different distro than you backed up from, and reinstalls Flatpak apps via Flathub. It then shows you exactly what will be restored and where, and once confirmed, restores your chosen files and folders to their original locations; anything already at the destination is moved aside rather than overwritten. Finally, it resets permissions on `~/.ssh`, `~/.gnupg`, and `~/.aws` to standard secure defaults if they were restored, showing the exact commands and asking for confirmation first.
+This clones your private repository, or asks for it if this is a new machine, then detects the new machine's distro and package manager. It reinstalls packages using the correct package manager for this machine, translating package names via `lib/pkg-map.txt` if you're restoring on a different distro than you backed up from, and reinstalls Flatpak apps via Flathub. It first shows the full plan. Every package, Flatpak, and file, with destinations and any conflicts, and asks for one confirmation. Nothing on your system changes until you say yes, so on a cross-distro restore you can stop without leaving the system half-restored. Once confirmed, it restores everything to the original locations. Anything already at the destination is moved aside rather than overwritten. Finally, it resets permissions on `~/.ssh`, `~/.gnupg`, and `~/.aws` to standard secure defaults if they were restored, showing the exact commands and asking for confirmation first.
 
 ## Notes
 
@@ -76,7 +76,7 @@ Gum is required for the interactive picker, and both scripts will tell you if it
 
 Nomad is plain bash. No compiled binaries, nothing hidden. Every line is readable before you run it.
 
-Nomad never sees, stores, or transmits your git or GitHub credentials. When git push or git clone needs a username, password, SSH passphrase, or token, that prompt comes directly from git itself talking to your terminal. Nomad only launches git as a subprocess and checks whether it succeeded, and there is no code path in nomad that reads, logs, or forwards anything you type into that prompt.
+Nomad never sees, stores, or transmits your git or GitHub credentials. When git push or git clone needs a username, password, SSH passphrase, or token, that prompt comes directly from git itself talking to your terminal. Nomad only launches git as a subprocess and checks whether it succeeded, and there is no code path in nomad that reads, logs, or forwards anything you type into that prompt. Nomad also tells Git to remember the credentials briefly. Git handles this itself, nomad never sees them.
 
 If you don't take that on faith, check it yourself by running `grep -rniE "password|credential|token|secret" backup.sh restore.sh lib/*.sh`. Every match will be a warning message nomad prints to you, never code that reads one. The only network calls anywhere in the tool are git itself, flatpak remote-add pointing at Flathub's own public repo, and gum's own install commands from Charm's official repo, all fully visible in the source.
 

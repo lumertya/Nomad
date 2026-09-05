@@ -1,7 +1,15 @@
+#!/bin/bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$SCRIPT_DIR" 
+if [ -f "$SCRIPT_DIR/lib/distro.sh" ]; then
+    REPO_DIR="$SCRIPT_DIR"
+elif [ -f "/usr/share/nomad/lib/distro.sh" ]; then
+    REPO_DIR="/usr/share/nomad"
+else
+    echo "Could not find Nomad´s lib/ directory next to this script or at /ust/share/nomad." >&2
+    exit 1
+fi
 source "$REPO_DIR/lib/banner.sh"
 source "$REPO_DIR/lib/distro.sh"
 source "$REPO_DIR/lib/gum.sh"
@@ -24,7 +32,7 @@ if ! command -v rsync &>/dev/null; then
     exit 1
 fi
 
-ensure_data_repo 
+ensure_data_repo
 
 CONF_FILE="$DATA_DIR/backup-list.conf"
 PKG_DIR="$DATA_DIR/packages"
@@ -159,7 +167,6 @@ else
     fi
 fi
 
-# Dedupe
 mapfile -t SELECTED < <(printf '%s\n' "${SELECTED[@]}" | sed '/^$/d' | sort -u)
 
 if [ "${#SELECTED[@]}" -eq 0 ]; then
@@ -177,7 +184,7 @@ review_sensitive_dir() {
                 "Worth reviewing exactly what goes in, even for a private repository."
             if gum confirm "Review $label and choose exactly which files to back up?"; then
                 unset 'SELECTED[i]'
-                SELECTED=("${SELECTED[@]}") 
+                SELECTED=("${SELECTED[@]}")
                 mapfile -t SENS_FILES < <(find "$target" -maxdepth 1 -type f -printf '%f\n' | sort)
                 if [ "${#SENS_FILES[@]}" -gt 0 ]; then
                     mapfile -t CHOSEN_SENS < <(printf '%s\n' "${SENS_FILES[@]}" \
@@ -196,7 +203,7 @@ review_sensitive_dir "$HOME/.gnupg" "~/.gnupg"
 review_sensitive_dir "$HOME/.aws" "~/.aws"
 
 nomad_banner
-gum style --foreground 212 --bold "Step 3/4 — Copying"
+gum style --foreground 212 --bold "Step 3/4: Copying"
 rm -rf "$FILES_DIR"
 mkdir -p "$FILES_DIR"
 : > "$CONF_FILE"
@@ -280,9 +287,14 @@ else
         PUSH_CMD=(git push -u origin main)
     fi
 
-    if "${PUSH_CMD[@]}"; then
-        gum style --foreground 42 --bold "✓ Backup pushed to your repository"
+    stty sane 2>/dev/null; tput rmcup 2>/dev/null; tput cnorm 2>/dev/null; tput sgr0 2>/dev/null; tput clear 2>/dev/null
+    git config --global credential.helper "cache --timeout=600"
+    if env GIT_TERMINAL_PROMPT=1 "${PUSH_CMD[@]}"; then
+        nomad_banner
+        gum style --border rounded --padding "1 2" --border-foreground 42 --bold \
+            "Backup complete" "Thank you for using Nomad."
     else
+        nomad_banner
         gum style --foreground 196 "Push failed. Commit is saved locally, push manually when ready."
     fi
 fi

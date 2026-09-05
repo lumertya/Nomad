@@ -1,16 +1,26 @@
+#!/bin/bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_DIR="$SCRIPT_DIR" 
 
-if [ ! -f "$REPO_DIR/lib/distro.sh" ]; then
+if [ -f "$SCRIPT_DIR/lib/distro.sh" ]; then
+    REPO_DIR="$SCRIPT_DIR"
+elif [ -f "/usr/share/nomad/lib/distro.sh" ]; then
+    REPO_DIR="/usr/share/nomad"
+else
     read -r -p "Nomad repository URL to clone (e.g. https://github.com/lumertya/Nomad.git): " TOOL_REPO_URL
     read -r -p "Clone into [$HOME/nomad]: " CLONE_DIR
     CLONE_DIR=${CLONE_DIR:-"$HOME/nomad"}
-    git clone "$TOOL_REPO_URL" "$CLONE_DIR"
-    exec "$CLONE_DIR/restore.sh"
+    
+    stty sane 2>/dev/null; tput rmcup 2>/dev/null; tput cnorm 2>/dev/null; tput sgr0 2>/dev/null; tput clear 2>/dev/null
+    git config --global credential.helper "cache --timeout=600"
+    if env GIT_TERMINAL_PROMPT=1 git clone "$TOOL_REPO_URL" "$CLONE_DIR"; then
+        exec "$CLONE_DIR/restore.sh"
+    else
+        echo "Failed to clone repository"
+        exit 1
+    fi
 fi
-
 
 source "$REPO_DIR/lib/banner.sh"
 source "$REPO_DIR/lib/distro.sh"
@@ -38,7 +48,7 @@ if [ -f "$META_FILE" ]; then
 fi
 
 nomad_banner
-gum style --foreground 212 --bold "Step 1/3: Packages"
+gum style --foreground 212 --bold "Building restore plan..."
 
 run_pkg_install() {
     case "$PKG_MANAGER" in
@@ -91,89 +101,75 @@ install_aur_array() {
     fi
 }
 
-if gum confirm "Reinstall packages for $PKG_MANAGER?"; then
-    [ "$PKG_MANAGER" = "apt" ] && sudo apt update
+PLAN_PKG_MODE="none"
+declare -a PLAN_SAME_PKGS=()
+declare -a PLAN_AUR_PKGS=()
+declare -a PLAN_TRANSLATED=()
+declare -a PLAN_UNMATCHED=()
 
     if [ -z "$BACKUP_PKG_MANAGER" ] || [ "$BACKUP_PKG_MANAGER" = "$PKG_MANAGER" ]; then
         case "$PKG_MANAGER" in
             pacman)
-                [ -f "$PKG_DIR/pacman.txt" ] && install_pkg_file "pacman" "$PKG_DIR/pacman.txt"
-                if [ -s "$PKG_DIR/aur.txt" ]; then
-                    if [ "$HAS_AUR_HELPER" = true ]; then
-                        mapfile -t aur_pkgs < "$PKG_DIR/aur.txt"
-                        install_aur_array "${aur_pkgs[@]}"
-                    else
-                        gum style --foreground 214 "AUR packages found but no yay/paru installed. Skipping ${PKG_DIR}/aur.txt (install an AUR helper and rerun to catch these)."
-                    fi
-                fi
+                [ -f "$PKG_DIR/pacman.txt" ] && mapfile -t PLAN_SAME_PKGS < "$PKG_DIR/pacman.txt"
+                [ -s "$PKG_DIR/aur.txt" ] && mapfile -t PLAN_AUR_PKGS < "$PKG_DIR/aur.txt"
                 ;;
-            apt)    [ -f "$PKG_DIR/apt.txt" ]    && install_pkg_file "apt" "$PKG_DIR/apt.txt" ;;
-            dnf)    [ -f "$PKG_DIR/dnf.txt" ]    && install_pkg_file "dnf" "$PKG_DIR/dnf.txt" ;;
-            zypper) [ -f "$PKG_DIR/zypper.txt" ] && install_pkg_file "zypper" "$PKG_DIR/zypper.txt" ;;
-            *) gum style --foreground 196 "Unknown package manager. Skipping package install." ;;
+            apt) [ -f "$PKG_DIR/apt.txt" ] && mapfile -t PLAN_SAME_PKGS < "$PKG_DIR/apt.txt" ;;
+            dnf) [ -f "$PKG_DIR/dnf.txt" ] && mapfile -t PLAN_SAME_PKGS < "$PKG_DIR/dnf.txt" ;;
+            zypper) [ -f "$PKG_DIR/zypper.txt" ] && mapfile -t PLAN_SAME_PKGS < "$PKG_DIR/zypper.txt" ;;
+            *) PLAN_PKG_MODE="none" ;;
         esac
-    else
-        gum style --foreground 214 "Backup was made on $BACKUP_PKG_MANAGER, restoring on $PKG_MANAGER. Translating package names (best-effort)."
+    elif [ "$PKG_MANAGER" != "unknown" ]; then
+        PLAN_PKG_MODE="cross"
         SOURCE_FILE="$PKG_DIR/$BACKUP_PKG_MANAGER.txt"
         if [ -f "$SOURCE_FILE" ]; then
-            declare -a translated=()
-            declare -a unmatched=()
             while IFS= read -r pkg; do
                 [ -z "$pkg" ] && continue
                 if result=$(translate_package "$pkg" "$BACKUP_PKG_MANAGER" "$PKG_MANAGER"); then
-                    translated+=("$result")
+                    PLAN_TRANSLATED+=("$result")
                 else
-                    unmatched+=("$pkg")
+                    PLAN_UNMATCHED+=("$pkg")
                 fi
             done < "$SOURCE_FILE"
-
-            install_pkg_array "translated" "${translated[@]}"
-
-            if [ "${#unmatched[@]}" -gt 0 ]; then
-                gum style --foreground 214 \
-                    "No known translation for ${#unmatched[@]} package(s). Search for the $DISTRO_ID equivalent of each, then install with: $(manual_install_syntax)" \
-                    "Original package name(s) from the backup (search these):"
-                printf '  %s\n' "${unmatched[@]}"
-            fi
-        fi
-        if [ "$BACKUP_PKG_MANAGER" = "pacman" ] && [ -s "$PKG_DIR/aur.txt" ]; then
-            gum style --foreground 214 "AUR packages from the backup aren't restored on a different distro. Search for each on $DISTRO_ID and install with: $(manual_install_syntax)"
         fi
     fi
-    gum style --foreground 42 "✓ Packages installed"
-fi
 
-nomad_banner
-gum style --foreground 212 --bold "Step 2/3: Flatpak"
-if [ -s "$PKG_DIR/flatpak.txt" ]; then
-    if ! command -v flatpak &>/dev/null; then
-        if gum confirm "Flatpak isn't installed. Install it now?"; then
-            case "$PKG_MANAGER" in
-                pacman) sudo pacman -S --needed --noconfirm flatpak ;;
-                apt)    sudo apt install -y flatpak ;;
-                dnf)    sudo dnf install -y flatpak ;;
-                zypper) sudo zypper install -y flatpak ;;
-            esac
-        fi
-    fi
-    if command -v flatpak &>/dev/null && gum confirm "Reinstall flatpak apps?"; then
-        flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-        mapfile -t flatpaks < "$PKG_DIR/flatpak.txt"
-        for app in "${flatpaks[@]}"; do
-            flatpak install -y flathub "$app" || gum style --foreground 214 "Could not install $app. May not be on Flathub, skipping."
-        done
-        gum style --foreground 42 "✓ Flatpak apps installed"
-    fi
-fi
+declare -a PLAN_FLATPAKS=()
+[ -s "$PKG_DIR/flatpak.txt" ] && mapfile -t PLAN_FLATPAKS < "$PKG_DIR/flatpak.txt"
 
-nomad_banner
-gum style --foreground 212 --bold "Step 3/3: Files & Folders"
 ABS_COUNT=$(grep -c '^ABS:' "$CONF_FILE" 2>/dev/null || echo 0)
+HOME_COUNT=$(grep -c '^HOME:' "$CONF_FILE" 2>/dev/null || echo 0)
+
+echo "This restore will do the following:"
+echo
+
+if [ "$PLAN_PKG_MODE" = "same" ]; then
+    echo "Packages: ${#PLAN_SAME_PKGS[@]} via $PKG_MANAGER"
+    if [ "${#PLAN_AUR_PKGS[@]}" -gt 0 ]; then
+        if [ "$HAS_AUR_HELPER" = true ]; then
+            echo "AUR packages: ${#PLAN_AUR_PKGS[@]} via $AUR_HELPER"
+        else
+            echo "AUR packages: ${#PLAN_AUR_PKGS[@]} found, but no yay/paru installed. These will be skipped"
+        fi
+    fi
+elif [ "$PLAN_PKG_MODE" = "cross" ]; then
+    echo "Packages: backup was made on $BACKUP_PKG_MANAGER, restoring on $PKG_MANAGER"
+    echo "${#PLAN_TRANSLATED[@]} translated and ready to install, ${#PLAN_UNMATCHED[@]} with no known translation (manual install needed)"
+    if [ "$BACKUP_PKG_MANAGER" = "pacman" ] && [ -s "$PKG_DIR/aur.txt" ]; then
+        echo "AUR packages from the backup don't carry over cross-distro. Will need manual equivalents"
+    fi
+else
+    echo "Packages: none to install"
+fi
+
+echo "Flatpak apps: ${#PLAN_FLATPAKS[@]}"
+
+echo "Files/folders: $((HOME_COUNT + ABS_COUNT)) total"
 if [ "$ABS_COUNT" -gt 0 ]; then
-    gum style --foreground 214 "$ABS_COUNT file(s)/folder(s) are outside your home folder and need root permission to restore. You'll be prompted for your password when those come up."
+    echo "$ABS_COUNT outside your home folder. Will need root permission"
 fi
 
 if [ -s "$CONF_FILE" ]; then
+    echo
     echo "The following will be restored:"
     while IFS= read -r line; do
         [ -z "$line" ] && continue
@@ -185,14 +181,78 @@ if [ -s "$CONF_FILE" ]; then
             preview_dest="$rel"
         fi
         if [ -e "$preview_dest" ]; then
-            echo "  $preview_dest (already exists. It will be moved aside first)"
+            echo "$preview_dest (already exists. Will be moved aside first)"
         else
-            echo "  $preview_dest"
+            echo "$preview_dest"
         fi
     done < "$CONF_FILE"
 fi
 
-if [ -s "$CONF_FILE" ] && gum confirm "Restore these files/folders to this machine?"; then
+echo
+
+if [ "$PLAN_PKG_MODE" = "none" ] && [ "${#PLAN_FLATPAKS[@]}" -eq 0 ] && [ ! -s "$CONF_FILE" ]; then
+    gum style --foreground 214 "Nothing to restore. No packages, Flatpak apps, or files were found in this backup."
+    exit 0
+fi
+
+if ! gum confirm "Proceed with this restore?"; then
+    gum style --foreground 214 "Nothing was changed."
+    exit 0
+fi
+
+nomad_banner
+gum style --foreground 212 --bold "Step 1/3: Packages"
+[ "$PKG_MANAGER" = "apt" ] && sudo apt update
+
+if [ "$PLAN_PKG_MODE" = "same" ]; then
+    install_pkg_array "$PKG_MANAGER" "${PLAN_SAME_PKGS[@]}"
+    if [ "${#PLAN_AUR_PKGS[@]}" -gt 0 ]; then
+        if [ "$HAS_AUR_HELPER" = true ]; then
+            install_aur_array "${PLAN_AUR_PKGS[@]}"
+        else
+            gum style --foreground 214 "AUR packages found but no yay/paru installed. Skipping (install an AUR helper and rerun to catch these)."
+        fi
+    fi
+elif [ "$PLAN_PKG_MODE" = "cross" ]; then
+    install_pkg_array "translated" "${PLAN_TRANSLATED[@]}"
+    if [ "${#PLAN_UNMATCHED[@]}" -gt 0 ]; then
+        gum style --foreground 214 \
+            "No known translation for ${#PLAN_UNMATCHED[@]} package(s). Search for the $DISTRO_ID equivalent of each, then install with: $(manual_install_syntax)"
+        printf '  %s\n' "${PLAN_UNMATCHED[@]}"
+    fi
+    if [ "$BACKUP_PKG_MANAGER" = "pacman" ] && [ -s "$PKG_DIR/aur.txt" ]; then
+        gum style --foreground 214 "AUR packages from the backup aren't restored on a different distro. Search for each on $DISTRO_ID and install with: $(manual_install_syntax)"
+    fi
+fi
+gum style --foreground 42 "✓ Packages done"
+
+nomad_banner
+gum style --foreground 212 --bold "Step 2/3: Flatpak"
+if [ "${#PLAN_FLATPAKS[@]}" -gt 0 ]; then
+    if ! command -v flatpak &>/dev/null; then
+        if gum confirm "Flatpak isn't installed. Install it now?"; then
+            case "$PKG_MANAGER" in
+                pacman) sudo pacman -S --needed --noconfirm flatpak ;;
+                apt)    sudo apt install -y flatpak ;;
+                dnf)    sudo dnf install -y flatpak ;;
+                zypper) sudo zypper install -y flatpak ;;
+            esac
+        fi
+    fi
+    if command -v flatpak &>/dev/null; then
+        flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+        for app in "${PLAN_FLATPAKS[@]}"; do
+            flatpak install -y flathub "$app" || gum style --foreground 214 "Could not install $app. May not be on Flathub, skipping."
+        done
+        gum style --foreground 42 "✓ Flatpak apps installed"
+    fi
+else
+    gum style --foreground 214 "No Flatpak apps to restore."
+fi
+
+nomad_banner
+gum style --foreground 212 --bold "Step 3/3: Files & Folders"
+if [ -s "$CONF_FILE" ]; then
     while IFS= read -r line; do
         [ -z "$line" ] && continue
         kind="${line%%:*}"
@@ -204,7 +264,7 @@ if [ -s "$CONF_FILE" ] && gum confirm "Restore these files/folders to this machi
         else
             src="$FILES_DIR/abs$rel"
             dest="$rel"
-            SUDO="sudo" 
+            SUDO="sudo"
         fi
         [ -e "$src" ] || continue
 
@@ -254,7 +314,10 @@ if [ -s "$CONF_FILE" ] && gum confirm "Restore these files/folders to this machi
     fi
 
     gum style --foreground 42 "✓ Files restored (any conflicts backed up with .bak.<timestamp>)"
+else
+    gum style --foreground 214 "No files/folders to restore."
 fi
 
+nomad_banner
 gum style --border rounded --padding "1 2" --border-foreground 42 --bold \
-    "Restore complete" "You may need to log out/in for shell configs and PATH changes to take effect."
+    "Restore complete" "You may need to log out/in for shell configs and PATH changes to take effect." "Thank you for using Nomad."
