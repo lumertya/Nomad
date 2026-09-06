@@ -20,6 +20,9 @@ save_nomad_config() {
 ensure_data_repo() {
     load_nomad_config
 
+    stty sane 2>/dev/null; tput rmcup 2>/dev/null; tput cnorm 2>/dev/null; tput sgr0 2>/dev/null; tput clear 2>/dev/null
+    git config --global credential.helper "cache --timeout=600"
+
     if [ -n "$DATA_DIR" ] && [ -n "$DATA_REPO_URL" ]; then
         CHOICE=$(gum choose --header "Data repo: $DATA_REPO_URL ($DATA_DIR). What do you want to do?" \
             "Keep using this" "Change it")
@@ -70,12 +73,10 @@ ensure_data_repo() {
         save_nomad_config
         if [ ! -d "$DATA_DIR/.git" ]; then
             echo "Connecting to your data repository (you may be asked to authenticate)..."
-            stty sane 2>/dev/null; tput rmcup 2>/dev/null; tput cnorm 2>/dev/null; tput sgr0 2>/dev/null; tput clear 2>/dev/null
-            git config --global credential.helper "cache --timeout=600"
             if env GIT_TERMINAL_PROMPT=1 git clone "$DATA_REPO_URL" "$DATA_DIR"; then
                 gum style --foreground 42 "✓ Connected to $DATA_REPO_URL"
             else
-                gum style --foreground 196 "Couldn´t reach $DATA_REPO_URL. Check your connection and access, then run Nomad again."
+                gum style --foreground 196 "Couldn't reach $DATA_REPO_URL. Check your connection and access, then run Nomad again."
                 exit 1
             fi
         else
@@ -85,8 +86,6 @@ ensure_data_repo() {
                 gum style --foreground 42 "✓ Updated repository remote to $DATA_REPO_URL"
             fi
 
-            stty sane 2>/dev/null; tput rmcup 2>/dev/null; tput cnorm 2>/dev/null; tput sgr0 2>/dev/null; tput clear 2>/dev/null
-            git config --global credential.helper "cache --timeout=600"
             if ! env GIT_TERMINAL_PROMPT=1 git -C "$DATA_DIR" pull --ff-only origin main 2>/dev/null; then
                 gum style --foreground 214 "Could not fast-forward pull. If this repository has local commits that conflict with the remote, you may need to resolve that manually in $DATA_DIR."
             fi
